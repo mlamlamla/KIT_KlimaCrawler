@@ -28,55 +28,40 @@ Erstellt einen lokalen Ordner namens **wi2026** in deinem Projektverzeichnis.
 
 ---
 
-## Windows
+## 🪟 Windows
 
-### PowerShell
-
-````powershell
+# PowerShell
 # Erstellen
 python -m venv wi2026
 
-### Windows (PowerShell)
-```powershell
-python -m venv wi2026
+# Aktivieren
 .\wi2026\Scripts\Activate.ps1
-````
 
-```CMD
-
-python -m venv wi2026
-wi2026\Scripts\activate
-# Aktivieren (CMD)
-wi2026\Scripts\activate
-```
-
-macOS / Linux
-Bash
-
+# CMD
 # Erstellen
+python -m venv wi2026
 
+# Aktivieren
+wi2026\Scripts\activate
+
+## 🍎 macOS / 🐧 Linux
+
+# Bash
+# Erstellen
 python3 -m venv wi2026
 
 # Aktivieren
-
 source wi2026/bin/activate
+
 Option 2: Anaconda / Miniconda (conda)
 
-Verwaltet die Umgebung zentral in deinem System.
+Verwaltet virtuelle Umgebungen zentral im System.
 
-Alle Betriebssysteme
-
-# Erstellen (mit spezifischer Python-Version)
-
-conda create --name wi2026 python=3.11
+# Umgebung erstellen
+conda create -n wi2026 python=3.11
 
 # Aktivieren
-
 conda activate wi2026
-
-# Deaktivieren
-
-conda deactivate
 
 ---
 
