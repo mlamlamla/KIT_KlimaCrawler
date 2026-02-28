@@ -24,33 +24,34 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler("worker.log", encoding="utf-8"),  # Schreibt in Datei
-        logging.StreamHandler()                               # Schreibt ins Terminal
+        logging.FileHandler("worker.log", encoding="utf-8"),
+        logging.StreamHandler()
     ]
 )
 logger = logging.getLogger(__name__)
 
 HEARTBEAT_EVERY_SECONDS = 30.0
 
-# 1. Unsere neuen Klima-Keywords
+# 1. Erweiterte Klima- & Finanz-Keywords für maximale Abdeckung (Recall)
 KLIMA_KEYWORDS = {
     "positive": [
-        "klima", "klimaschutz", "energie", "umwelt", "nachhaltig", 
-        "waermeplanung", "wärmeplanung", "co2", "masterplan", 
-        "sanierung", "solarkataster"
+        "klima", "klimaschutz", "energie", "waermeplanung", "wärmeplanung", 
+        "co2", "thg", "solar", "photovoltaik", "pv", "wind", 
+        "förder", "foerder", "zuschuss", "mittel", "haushalt", "finanz", 
+        "investition", "nki", "kfw", "eu-mittel", "efre", "beschluss", "vorlage"
     ],
     "negative": [
-        "impressum", "datenschutz", "kontakt", "sitemap", 
-        "barrierefreiheit", "leichte-sprache", "login", 
-        "buergerservice", "rathaus/service", "formulare"
+        "impressum", "datenschutz", "barrierefreiheit", "leichte-sprache", 
+        "login", "karriere", "stellenangebot", "jubiläum", "veranstaltung",
+        "tourismus", "museum", "sport"
     ]
 }
 
-# 2. Die Industrial-Limits
+# 2. Die Industrial-Limits (Synchronisiert mit der optimierten Engine)
 KLIMA_LIMITS = EngineLimits(
-    max_depth=5,                 
-    max_pages_per_muni=1000,     
-    max_file_size_mb=50          
+    max_depth=12,                 # Tiefer graben für Ratsinformationssysteme
+    max_pages_per_muni=25000,     # Hohes Limit für vollständige Datensätze
+    max_file_size_mb=100          # Auch große Haushalts- und Wärmeplan-PDFs erfassen
 )
 
 def _heartbeat_loop(db_path: str, municipality_id: str, worker_id: str, stop: threading.Event) -> None:
@@ -73,16 +74,18 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--db", default=str(DEFAULT_CRAWL_DB_PATH))
     ap.add_argument("--stale-after", type=int, default=15 * 60)
-    ap.add_argument("--limit", type=int, default=None, help="Anzahl der zu bearbeitenden Kommunen, danach beenden.")
+    ap.add_argument("--limit", type=int, default=None, help="Anzahl der zu bearbeitenden Kommunen.")
     args = ap.parse_args()
 
     worker_id = default_worker_id()
     _, allowed = load_seeds_from_sqlite()
 
+    # Initialisierung der Engine mit den neuen High-Recall Parametern
     engine = Engine(
         keywords=KLIMA_KEYWORDS,  
         limits=KLIMA_LIMITS,
         allowed_domains_by_muni=allowed,
+        worker_id=worker_id
     )
 
     con = sqlite3.connect(args.db, timeout=5.0)
@@ -92,21 +95,21 @@ def main() -> None:
     jobs_processed = 0
     start_time = time.time()
     
-    logger.info(f"🚀 Starte Worker {worker_id}")
+    logger.info(f"🚀 Starte Industrial-Worker {worker_id} (High-Recall Mode)")
     if args.limit:
         logger.info(f"🎯 Ziel-Limit: {args.limit} Kommunen")
 
     try:
         while True:
             if args.limit and jobs_processed >= args.limit:
-                logger.info(f"✅ Limit von {args.limit} erreicht. Worker beendet sich regulär.")
+                logger.info(f"✅ Limit von {args.limit} erreicht. Worker beendet.")
                 break
 
             with con:
                 job = claim_next_job(con, worker_id=worker_id, stale_after_seconds=args.stale_after)
 
             if job is None:
-                logger.info("💤 Keine 'pending' Jobs gefunden. Beende Worker.")
+                logger.info("💤 Keine 'pending' Jobs gefunden. Beende.")
                 break
 
             stop = threading.Event()
@@ -119,22 +122,21 @@ def main() -> None:
 
             muni_start_time = time.time()
             try:
-                logger.info(f"▶️ Starte Crawl für Gemeinde {job.municipality_id} ({job.seed_url})...")
-                with con:
-                    heartbeat_job(con, job.municipality_id, worker_id)
-
+                logger.info(f"▶️ Bearbeite Gemeinde {job.municipality_id} ({job.seed_url})")
+                
+                # Crawler starten
                 engine.run([(job.municipality_id, job.seed_url)])
 
                 with con:
                     mark_done(con, job.municipality_id, worker_id)
                 
                 duration = timedelta(seconds=int(time.time() - muni_start_time))
-                logger.info(f"✅ Gemeinde {job.municipality_id} erfolgreich abgeschlossen in {duration}.")
+                logger.info(f"✅ Gemeinde {job.municipality_id} fertiggestellt. Dauer: {duration}.")
 
             except Exception as e:
                 with con:
                     mark_failed(con, job.municipality_id, worker_id, str(e))
-                logger.error(f"❌ Fehler bei Gemeinde {job.municipality_id}: {e}", exc_info=True)
+                logger.error(f"❌ Fehler bei {job.municipality_id}: {e}", exc_info=True)
 
             finally:
                 stop.set()
@@ -144,7 +146,7 @@ def main() -> None:
     finally:
         con.close()
         total_time = timedelta(seconds=int(time.time() - start_time))
-        logger.info(f"🏁 Zusammenfassung: {jobs_processed} Kommunen verarbeitet in {total_time}.")
+        logger.info(f"🏁 Fertig: {jobs_processed} Kommunen in {total_time} verarbeitet.")
 
 if __name__ == "__main__":
     main()

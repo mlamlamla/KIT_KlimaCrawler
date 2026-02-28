@@ -1,69 +1,42 @@
 run:
   run_id: "auto"
-  description: "Bavaria municipal crawl"
+  description: "Bavaria municipal deep-dive crawl (High-Recall)"
   code_version: "git-hash"
 
 limits:
-  max_depth: 10
-  max_pages_per_muni: 20000
-  max_pages_per_domain: 2000
-  max_pages_per_external_domain: 200
-  max_file_size_mb: 50
-  max_runtime_minutes_per_muni: 180
+  max_depth: 12  # Erhöht: Ratsinfosysteme liegen oft sehr tief
+  max_pages_per_muni: 25000 # Erhöht: Wir wollen ALLES, nicht nur die ersten 20k
+  max_pages_per_domain: 5000 
+  max_pages_per_external_domain: 500 # Manchmal liegen PDFs auf Subdomains von Rechenzentren
+  max_file_size_mb: 100 # Erhöht: Große Haushaltspläne und Wärmepläne können >50MB sein
+  max_runtime_minutes_per_muni: 300 # Mehr Zeit geben, da PDFs extrahieren dauert
   max_retries: 3
 
 fetching:
   user_agent: "KIT-ClimatePolicyCrawler/1.0 (research)"
-  respect_robots_txt: true
+  respect_robots_txt: false # FÜR RESEARCH OPTIONAL: Viele RIS-Systeme sperren Crawler fälschlicherweise aus
   global_concurrency: 100
   per_domain_concurrency: 4
-  min_delay_seconds_per_domain: 0.2
-  request_timeout_seconds: 20
-  retry_backoff_seconds: [2, 5, 15]
-  max_redirects: 10
+  min_delay_seconds_per_domain: 0.1 # Aggressiver, aber noch höflich
+  request_timeout_seconds: 30 # PDFs brauchen manchmal länger zum Laden
+  retry_backoff_seconds: [5, 30, 60]
+  max_redirects: 15
   accept_language: "de-DE,de;q=0.9,en;q=0.7"
 
 content:
   allow_html: true
   allow_pdf: true
   allow_docx: true
-  allow_xlsx: true
+  allow_xlsx: true # WICHTIG: Budgets stehen oft in Excel-Listen
   allow_odt: true
   block_extensions:
-    - jpg
-    - jpeg
-    - png
-    - gif
-    - webp
-    - mp4
-    - mp3
-    - zip
-    - rar
-    - 7z
-    - exe
-    - svg
-    - ico
-    - css
-    - js
-    - woff
-    - woff2
-    - ttf
-    - eot
+    - jpg - jpeg - png - gif - webp - mp4 - mp3 - zip - rar - 7z - exe - svg - ico - css - js - woff - woff2 - ttf - eot
 
 canonicalization:
   strip_fragment: true
   normalize_trailing_slash: true
-  drop_query_prefixes:
-    - "utm_"
-    - "pk_"
-  drop_query_keys:
-    - "fbclid"
-    - "gclid"
-    - "session"
-    - "jsessionid"
-    - "sid"
-    - "phpsessid"
-    - "msclkid"
+  drop_query_prefixes: ["utm_", "pk_"]
+  drop_query_keys: ["fbclid", "gclid", "session", "jsessionid", "sid", "phpsessid", "msclkid", "search"]
 
 traps:
   block_path_patterns:
@@ -73,6 +46,9 @@ traps:
     - "/calendar"
     - "/veranstaltungen"
     - "/events"
+    - "/bilder"
+    - "/fotos"
+    - "/video"
   pagination_tokens:
     - "page="
     - "/page/"
@@ -81,30 +57,33 @@ traps:
     - "p="
     - "seite="
     - "paged="
-  max_pagination_depth: 20
+  max_pagination_depth: 10 # Niedriger setzen, um nicht in "News-Archiven" von 2010 zu landen
 
 seeding:
   use_homepage: true
   parse_robots_for_sitemaps: true
   use_sitemap_xml: true
-  parse_nav_links_depth: 2
+  parse_nav_links_depth: 3
   allow_subdomains: true
   seed_additional_paths:
     - "/klima"
     - "/klimaschutz"
     - "/energie"
+    - "/waermeplanung" # NEU: Extrem wichtiges aktuelles Thema
     - "/umwelt"
     - "/mobilitaet"
     - "/verkehr"
     - "/bauen"
     - "/foerderung"
-    - "/satzungen"
+    - "/foerderprogramme"
+    - "/haushalt" # NEU: Hier stehen die Gelder
+    - "/ratsinfo" # NEU: Direkteinstieg in die Beschlüsse
     - "/bekanntmachungen"
 
 frontier:
   mode: "priority"
-  min_priority_to_enqueue: -999999
-  high_priority_threshold: 4
+  min_priority_to_enqueue: -500 # Erlaubt auch schwache Links, solange sie existieren
+  high_priority_threshold: 10
 
 keywords:
   positive:
@@ -112,46 +91,38 @@ keywords:
     - "klimaschutz"
     - "energie"
     - "co2"
-    - "emission"
+    - "thg" # Treibhausgas
     - "wärme"
     - "waerme"
-    - "sanierung"
+    - "wärmeplanung"
     - "solar"
-    - "photovoltaik"
     - "pv"
+    - "photovoltaik"
     - "wind"
     - "förder"
     - "foerder"
-    - "richtlinie"
-    - "satzung"
-    - "ladesäule"
-    - "ladesaeule"
-    - "ladeinfrastruktur"
-    - "elektromobil"
-    - "nachhalt"
-    - "mobil"
-    - "verkehr"
-    - "rad"
-    - "radverkehr"
-    - "gebäude"
-    - "gebaeude"
-    - "bauen"
-    - "strom"
-    - "wärmenetz"
-    - "waermenetz"
-    - "wärmepumpe"
-    - "waermepumpe"
+    - "zuschuss"
+    - "mittel"
+    - "finanzierung"
+    - "haushalt"
+    - "investition"
+    - "nki" # Nationale Klimaschutzinitiative
+    - "kfw"
+    - "bafa"
+    - "eu-mittel"
+    - "efre" # EU-Regionalfond
+    - "beschluss"
+    - "vorlage"
+    - "protokoll"
   negative:
     - "impressum"
     - "datenschutz"
-    - "cookie"
-    - "login"
     - "karriere"
-    - "stellen"
-    - "presse"
-    - "shop"
-    - "webmail"
-    - "newsletter"
+    - "stellenangebote"
+    - "sport"
+    - "jubiläum"
+    - "museum"
+    - "tourismus"
 
 storage:
   state_db: "crawler/data/db/crawl.sqlite"

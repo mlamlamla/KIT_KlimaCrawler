@@ -36,9 +36,9 @@ def _is_trap(url: str) -> bool:
 
 @dataclass(frozen=True)
 class EngineLimits:
-    max_depth: int = 10
-    max_pages_per_muni: int = 20000
-    max_file_size_mb: int = 50
+    max_depth: int = 12  # Erhöht für tiefe RIS-Strukturen
+    max_pages_per_muni: int = 25000  # Erhöht für Vollständigkeit in großen Städten
+    max_file_size_mb: int = 100  # Erhöht für große Haushaltspläne/PDFs
 
 
 class Engine:
@@ -120,26 +120,52 @@ class Engine:
         allowed = self.allowed_domains_by_muni.get(muni_id)
         if not allowed:
             return False
-        return domain in allowed  # exact match (safe default)
+        return domain in allowed 
 
     def score(self, url: str, anchor: Optional[str]) -> int:
+        """
+        High-Recall Scoring Engine: 
+        Priorisiert PDFs, Ratsinformationssysteme und Klimabegriffe massiv.
+        """
         u = (url or "").lower()
         a = (anchor or "").lower()
-        score = 0
+        score = 10  # Basis-Score für Entdeckung
 
+        # 1. Höchste Priorität: PDFs (Goldquelle für Paper)
+        if ".pdf" in u:
+            score += 300
+
+        # 2. Hohe Priorität: Ratsinformationssysteme (RIS)
+        # Typische Pfade für SessionNet, Allris, etc.
+        ris_patterns = ['session', 'bi/vo', 'bi/si', 'bi/kp', 'allris', 'ratsinfo', 'ris.']
+        if any(p in u for p in ris_patterns):
+            score += 200
+
+        # 3. Inhaltliche Keywords (Klima, Finanzen, Bau)
+        high_impact_keywords = [
+            'klima', 'energie', 'wärme', 'solar', 'pv', 'wind', 'strom', 
+            'förder', 'zuschuss', 'mittel', 'haushalt', 'finanz', 'euro',
+            'bau', 'planung', 'sanierung', 'mobilität', 'verkehr',
+            'rat', 'beschluss', 'sitzung', 'nki', 'kfw', 'umwelt'
+        ]
+        
+        for kw in high_impact_keywords:
+            if kw in u:
+                score += 150
+            if a and kw in a:
+                score += 100
+
+        # 4. Standard Positive Keywords aus Konfiguration
         for kw in self.keywords.get("positive", []):
             k = str(kw).lower()
-            if k and k in u:
-                score += 2
-            if k and a and k in a:
-                score += 1
+            if k and k in u: score += 10
+            if k and a and k in a: score += 5
 
+        # 5. Negative Keywords (Noise reduzieren, aber Pfad nicht blockieren)
         for kw in self.keywords.get("negative", []):
             k = str(kw).lower()
-            if k and k in u:
-                score -= 2
-            if k and a and k in a:
-                score -= 1
+            if k and k in u: score -= 50
+            if k and a and k in a: score -= 20
 
         return score
 
@@ -205,9 +231,6 @@ class Engine:
         u = (url or "").lower()
         return u.endswith(".pdf")
 
-    # ----------------------------
-    # Option 2: batchwise crawling via seed_jobs
-    # ----------------------------
     def run_claimed_batch(self, batch_size: int = 1) -> None:
         seeds = self.storage.claim_next_seed_jobs(worker_id=self.worker_id, limit=batch_size)
         if not seeds:
@@ -215,16 +238,12 @@ class Engine:
             return
         self.run(seeds)
 
-    # ----------------------------
-    # normal run on given seeds
-    # ----------------------------
     def run(self, seeds: Iterable[Tuple[str, str]]) -> None:
         canon = self.canon.normalize
         max_depth = int(self.limits.max_depth)
         max_pages = int(self.limits.max_pages_per_muni)
         lim_bytes = int(self.limits.max_file_size_mb) * 1024 * 1024
 
-        # enqueue seeds
         for muni_id, url in seeds:
             muni_id = str(muni_id)
             self._pages_by_muni.setdefault(muni_id, 0)
@@ -236,14 +255,10 @@ class Engine:
 
             url_c_seed = canon(url) or url
             if not self._is_allowed(muni_id, url):
-                self.storage.mark_visited(url_c_seed, -1, "seed out of scope / not http(s)")
-                try:
-                    self.storage.finish_seed_job(muni_id, ok=False, error="seed out of scope")
-                except Exception:
-                    pass
+                self.storage.mark_visited(url_c_seed, -1, "seed out of scope")
                 continue
 
-            self.scheduler.enqueue(CrawlTask(muni_id, url, depth=0), 10)
+            self.scheduler.enqueue(CrawlTask(muni_id, url, depth=0), 100)
 
         while self.scheduler.has_next():
             task = self.scheduler.next()
@@ -262,8 +277,6 @@ class Engine:
             url_c = canon(task.url)
             if not url_c:
                 continue
-            if _is_trap(url_c):
-                continue
 
             if self.storage.is_visited(url_c):
                 doc_id = self.storage.get_document_id_by_canonical_url(url_c)
@@ -276,22 +289,18 @@ class Engine:
                 print(f"[fetch] depth={task.depth} muni={task.municipality_id} url={task.url}", flush=True)
 
                 fr = self.fetch(task.url)
-
-                print(f"[done ] {fr.status_code} {len(fr.body)}B {time.time()-t0:.2f}s {fr.url_final}", flush=True)
                 status = int(fr.status_code)
 
                 if not self._is_allowed(task.municipality_id, fr.url_final):
-                    self.storage.mark_visited(url_c, status, "redirect out of allowed domains")
+                    self.storage.mark_visited(url_c, status, "redirect out of scope")
                     continue
 
                 if self._over_size_limit(fr):
-                    self.storage.mark_visited(url_c, status, "skipped: content-length over limit")
+                    self.storage.mark_visited(url_c, status, "oversize")
                     continue
-                if not fr.body:
-                    self.storage.mark_visited(url_c, status, "empty body")
-                    continue
-                if len(fr.body) > lim_bytes:
-                    self.storage.mark_visited(url_c, status, "skipped: body over limit")
+
+                if not fr.body or len(fr.body) > lim_bytes:
+                    self.storage.mark_visited(url_c, status, "body error/limit")
                     continue
 
                 with self.storage.transaction():
@@ -299,19 +308,19 @@ class Engine:
 
                     if self._looks_like_html(task.url, fr.content_type):
                         parse_result = parse_html(fr, fr.url_final)
-                        self.storage.store_segments(doc_id, parse_result.segments)
+                        
+                        # High-Recall: Wir speichern Text, wenn er nicht komplett leer ist.
+                        # Filterung erfolgt später im LLM-Schritt.
+                        if len(parse_result.segments) > 0:
+                            self.storage.store_segments(doc_id, parse_result.segments)
 
                         next_depth = task.depth + 1
                         if next_depth <= max_depth:
                             for link, anchor in parse_result.out_links:
                                 link_c = canon(link)
-                                if not link_c:
+                                if not link_c or not self._is_allowed(task.municipality_id, link_c):
                                     continue
-                                if _is_trap(link_c):
-                                    continue
-                                if not self._is_allowed(task.municipality_id, link_c):
-                                    continue
-
+                                
                                 prio = self.score(link_c, anchor)
                                 self.scheduler.enqueue(
                                     CrawlTask(
@@ -324,14 +333,10 @@ class Engine:
                                     prio,
                                 )
 
-                    # --- NEUER BLOCK FÜR PDFs ---
                     elif self._looks_like_pdf(task.url, fr.content_type):
-                        print(f"[parse] Extrahiere PDF Text: {fr.url_final}", flush=True)
+                        print(f"[parse] Extrahiere PDF: {fr.url_final}", flush=True)
                         parse_result = parse_pdf(fr, fr.url_final)
                         self.storage.store_segments(doc_id, parse_result.segments)
-                    # ----------------------------
-
-                    self.storage.mark_visited(url_c, status)
 
                     self.storage.mark_visited(url_c, status)
 
@@ -340,8 +345,6 @@ class Engine:
             except Exception as e:
                 self.storage.mark_visited(url_c, -1, str(e))
 
-        # if we reached here without exceptions per seed, mark seeds as done best-effort
-        # (done-per-muni is safer, but this is still useful)
         for muni_id, _ in seeds:
             try:
                 self.storage.finish_seed_job(str(muni_id), ok=True)
