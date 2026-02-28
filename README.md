@@ -30,7 +30,7 @@ Erstellt einen lokalen Ordner namens **wi2026** in deinem Projektverzeichnis.
 
 ## 🪟 Windows
 
-# PowerShell
+### PowerShell
 # Erstellen
 python -m venv wi2026
 
