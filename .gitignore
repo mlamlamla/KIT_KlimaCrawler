@@ -15,6 +15,9 @@ crawler/data/
 *.sqlite-shm
 *.sqlite.bak*
 
+!distribution_packages/
+!distribution_packages/**/*.sqlite
+
 # Log-Dateien
 *.log*.sqlite
 crawler/data/db/

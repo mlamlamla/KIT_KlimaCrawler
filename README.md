@@ -2,6 +2,7 @@
 
 Pipeline zur systematischen Erfassung von Energie- und Klimarichtlinien bayerischer Kommunen für die **GraphRAG-Analyse**.
 
+Distributed Packages: https://bwsyncandshare.kit.edu/s/4gTz25xpaYbw6BW 
 ---
 
 ## 🛠 Voraussetzungen
@@ -58,6 +59,8 @@ conda activate wi2026
 
 ### 3️⃣ Abhängigkeiten installieren
 
+Im Ordner "crawler" (über cd crawler navigieren) dann:
+
 ```bash
 pip install -r requirements.txt
 ```
@@ -76,7 +79,7 @@ Um Bayern parallel zu crawlen, werden vorab aufgeteilte Datenbank-Pakete verwend
 ### Ablauf
 
 1. **Reservieren**  
-   Trage deinen Namen im Repository in die Datei `TRACKER.md` beim gewählten Paket ein (z. B. `pkg_05`) und pushe die Änderung.
+   Trage deinen Namen im Repository in die Datei `TRACKER.md` beim gewählten Paket ein (z. B. `pkg_05`) und pushe die Änderung. -> Warnhinweis -> Create Fork
 
 2. **Paket laden**  
    Lade den entsprechenden Ordner aus der Cloud/GitHub herunter.
@@ -89,6 +92,8 @@ Um Bayern parallel zu crawlen, werden vorab aufgeteilte Datenbank-Pakete verwend
    ```
 
    (Bestehende Datei überschreiben.)
+
+   Den Ordner muss man manuell anlegen, der ist nicht im GitHub!
 
 4. **Starten (ohne Limit)**  
 
@@ -137,10 +142,34 @@ caffeinate -i python3 -m crawler.scripts.run_worker
 
 ### Windows
 
-Nutze Tools wie:
+ ### Nutze Tools wie:
 
 - Caffeine  
 - PowerToys Awake  
+
+### 🔹 Installation
+
+1. Gehe auf die offizielle GitHub-Seite von
+Microsoft PowerToys
+2. Klicke auf Releases
+3. Lade die Datei
+PowerToysSetup-xxx-x64.exe herunter
+4. Installieren → fertig
+
+### 🔹 Aktivieren von „Awake“
+
+1. PowerToys öffnen
+2. Links Awake auswählen
+3. Aktivieren
+4. Modus wählen:
+
+Keep awake indefinitely
+
+Keep awake for a time interval
+
+Keep awake until expiration
+
+-> Das ist die sauberste Lösung – kein Script, kein Hack.
 
 ---
 

@@ -7,8 +7,8 @@ from typing import Dict, Iterable, List, Optional, Set, Tuple
 from urllib.parse import urlparse
 
 
-DEFAULT_MUNI_SQLITE_PATH = Path("crawler/data/db/municipalities.sqlite")
-DEFAULT_CSV_PATH = Path("crawler/data/seeds/municipalities.csv")
+DEFAULT_MUNI_SQLITE_PATH = Path("crawler/data/db/crawl.sqlite")
+# DEFAULT_CSV_PATH = Path("crawler/data/seeds/municipalities.csv")
 DEFAULT_CRAWL_DB_PATH = Path("crawler/data/db/crawl.sqlite")
 
 
@@ -119,7 +119,7 @@ def load_seeds_from_sqlite(
     allowed_sliced = {m: allowed[m] for (m, _) in sliced}
     return sliced, allowed_sliced
 
-
+"""
 def load_seeds_from_csv(
     csv_path: Path = DEFAULT_CSV_PATH,
     limit: Optional[int] = None,
@@ -127,11 +127,13 @@ def load_seeds_from_csv(
     end: Optional[int] = None,
 ) -> Tuple[List[Tuple[str, str]], Dict[str, Set[str]]]:
     """
+"""
     CSV columns expected:
       - ags
       - homepage_url
       - allowed_domains (optional, pipe-separated)
     """
+"""
     if not csv_path.exists():
         raise FileNotFoundError(f"municipalities.csv not found: {csv_path}")
 
@@ -162,6 +164,7 @@ def load_seeds_from_csv(
 
     allowed_sliced = {m: allowed[m] for (m, _) in sliced}
     return sliced, allowed_sliced
+"""
 
 def ensure_seed_jobs_schema(con: sqlite3.Connection) -> None:
     con.executescript(
