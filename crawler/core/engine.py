@@ -16,22 +16,28 @@ from crawler.core.scheduler import PriorityScheduler
 from crawler.core.storage import Storage, default_worker_id
 
 try:
-    import crawler.core.traps as traps 
-except Exception:
-    traps = None  
+    from crawler.core.traps import TrapDetector
+    _trap_detector = TrapDetector(
+        block_extensions=["jpg", "jpeg", "png", "gif", "svg", "mp4", "zip", "rar", "css", "js", "xml", "exe", "doc", "docx"],
+block_path_patterns=[
+            '/kalender', 'veranstaltungen', 'termine', 'sitzungskalender',
+            'monat=', 'jahr=', 'month=', 'year=', 'datum=',
+            'weinabend', 'kirchencafe', 'sprechstunde', 'jahreshauptversammlung', 
+            'regio-cup', 'firmung', 'vereinsmeisterschaft',
+            'print=', 'drucken=', 'ansicht=druck', 'type=print',
+            'sort=', 'order=', 'orderby=', 'sortierung=',
+            '/galerie', '/bilder', 'gallery', 'bildarchiv',
+            '/login', '/register', '/buergerservice/anmeldung', 'warenkorb'
+        ],
+        pagination_tokens=["page=", "offset=", "start=", "/page/"]
+    )
+except ImportError:
+    _trap_detector = None
 
-
-def _is_trap(url: str) -> bool:
-    if traps is None:
+def _is_trap(url: str, depth: int) -> bool:
+    if _trap_detector is None:
         return False
-    for fn_name in ("is_trap_url", "is_trap", "is_trap_link"):
-        fn = getattr(traps, fn_name, None)
-        if callable(fn):
-            try:
-                return bool(fn(url))
-            except Exception:
-                return False
-    return False
+    return _trap_detector.should_block(url, depth)
 
 
 @dataclass(frozen=True)
@@ -260,7 +266,7 @@ class Engine:
                 continue
             if not self._is_allowed(task.municipality_id, task.url):
                 continue
-            if _is_trap(task.url):
+            if _is_trap(task.url, task.depth):  # <--- HIER DIE ÄNDERUNG
                 continue
 
             pages = self._pages_by_muni.get(task.municipality_id, 0)
