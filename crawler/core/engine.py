@@ -1,4 +1,3 @@
-# crawler/core/engine.py
 from __future__ import annotations
 
 import time
@@ -19,7 +18,7 @@ try:
     from crawler.core.traps import TrapDetector
     _trap_detector = TrapDetector(
         block_extensions=["jpg", "jpeg", "png", "gif", "svg", "mp4", "zip", "rar", "css", "js", "xml", "exe", "doc", "docx"],
-block_path_patterns=[
+        block_path_patterns=[
             '/kalender', 'veranstaltungen', 'termine', 'sitzungskalender',
             'monat=', 'jahr=', 'month=', 'year=', 'datum=',
             'weinabend', 'kirchencafe', 'sprechstunde', 'jahreshauptversammlung', 
@@ -27,7 +26,12 @@ block_path_patterns=[
             'print=', 'drucken=', 'ansicht=druck', 'type=print',
             'sort=', 'order=', 'orderby=', 'sortierung=',
             '/galerie', '/bilder', 'gallery', 'bildarchiv',
-            '/login', '/register', '/buergerservice/anmeldung', 'warenkorb'
+            '/login', '/register', '/buergerservice/anmeldung', 'warenkorb',
+            'wasseruntersuchung', 'trinkwasser', 'prüfbericht', 'befund', 'analytik',
+            'abfallkalender', 'abfuhrkalender', 'müllgebühren', 'abfalltrennung',
+            'ferienprogramm', 'kindergarten', 'kinderhaus', 'schule', 'oberschule', 'bos-flyer',
+            'wahlergebnisse', 'wahlvorschläge', 'stimmzettel', 'bekanntmachung',
+            'umleitungsstrecke', 'baustelle', 'veranstaltungskalender'
         ],
         pagination_tokens=["page=", "offset=", "start=", "/page/"]
     )
@@ -44,7 +48,7 @@ def _is_trap(url: str, depth: int) -> bool:
 class EngineLimits:
     max_depth: int = 12  
     max_pages_per_muni: int = 25000  
-    max_file_size_mb: int = 100  
+    max_file_size_mb: int = 200  
 
 class Engine:
     def __init__(
@@ -128,10 +132,6 @@ class Engine:
         return domain in allowed 
 
     def score(self, url: str, anchor: Optional[str]) -> int:
-        """
-        High-Recall Scoring Engine: 
-        Priorisiert PDFs, Ratsinformationssysteme und Klimabegriffe massiv.
-        """
         u = (url or "").lower()
         a = (anchor or "").lower()
         score = 10  
@@ -145,9 +145,12 @@ class Engine:
 
         high_impact_keywords = [
             'klima', 'energie', 'wärme', 'solar', 'pv', 'wind', 'strom', 
-            'förder', 'zuschuss', 'mittel', 'haushalt', 'finanz', 'euro',
-            'bau', 'planung', 'sanierung', 'mobilität', 'verkehr',
-            'rat', 'beschluss', 'sitzung', 'nki', 'kfw', 'umwelt'
+            'fahrrad', 'radweg', 'mobilität', 'verkehr', 'ladesäule', 'wallbox', 'önpv',
+            'nachhaltig', 'umwelt', 'sanierung', 'dämmung', 'holzbau', 'begrünung',
+            'förder', 'zuschuss', 'mittel', 'haushalt', 'finanz', 'investition',
+            'nki', 'kfw', 'bafa', 'efre', 'eler', 'eu-förderung', 'spende',
+            'stadtwerke', 'evp', 'betreiber', 'investor', 'ausschreibung',
+            'rat', 'beschluss', 'sitzung', 'protokoll', 'niederschrift'
         ]
         
         for kw in high_impact_keywords:
@@ -266,7 +269,7 @@ class Engine:
                 continue
             if not self._is_allowed(task.municipality_id, task.url):
                 continue
-            if _is_trap(task.url, task.depth):  # <--- HIER DIE ÄNDERUNG
+            if _is_trap(task.url, task.depth):
                 continue
 
             pages = self._pages_by_muni.get(task.municipality_id, 0)
