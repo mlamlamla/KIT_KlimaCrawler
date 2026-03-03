@@ -52,7 +52,7 @@ KLIMA_LIMITS = EngineLimits(
 )
 
 def _heartbeat_loop(db_path: str, municipality_id: str, worker_id: str, stop: threading.Event) -> None:
-    con = sqlite3.connect(db_path, timeout=5.0)
+    con = sqlite3.connect(db_path, timeout=30.0)
     try:
         con.execute("PRAGMA busy_timeout=5000;")
         con.execute("PRAGMA journal_mode=WAL;")

@@ -19,10 +19,8 @@ RAW_DIR = Path("crawler/data/raw")
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
-
 def default_worker_id() -> str:
     return f"{socket.gethostname()}:{os.getpid()}"
-
 
 @dataclass(frozen=True)
 class RawWriteResult:
@@ -30,17 +28,7 @@ class RawWriteResult:
     raw_hash: str
     raw_path: str
 
-
 class Storage:
-    """
-    SQLite storage + content-addressed raw store (sha256).
-
-    - WAL + PRAGMAs
-    - batched transactions
-    - dedup raw writes (atomic)
-    - fast segment insert (OR IGNORE + executemany)
-    - distributed crawling via seed_jobs (claim/heartbeat/done/failed)
-    """
 
     def __init__(self, db_path: Path = DB_PATH, raw_dir: Path = RAW_DIR) -> None:
         self.db_path = Path(db_path)
@@ -49,7 +37,7 @@ class Storage:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.raw_dir.mkdir(parents=True, exist_ok=True)
 
-        self.conn = sqlite3.connect(str(self.db_path))
+        self.conn = sqlite3.connect(str(self.db_path, ), timeout=30)
         self.conn.row_factory = sqlite3.Row
 
         self.conn.execute("PRAGMA journal_mode=WAL;")
@@ -57,7 +45,7 @@ class Storage:
         self.conn.execute("PRAGMA temp_store=MEMORY;")
         self.conn.execute("PRAGMA foreign_keys=ON;")
         self.conn.execute("PRAGMA busy_timeout=5000;")
-        self.conn.execute("PRAGMA cache_size=-65536;")  # ~64MB
+        self.conn.execute("PRAGMA cache_size=-65536;") 
 
         self._init_schema()
 

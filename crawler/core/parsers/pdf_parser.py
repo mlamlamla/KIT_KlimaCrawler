@@ -10,7 +10,31 @@ from crawler.core.models import ParseResult, Segment
 logger = logging.getLogger(__name__)
 
 def parse_pdf(fetch_result: Any, url: str) -> ParseResult:
-    """Extrahiert Text aus einem PDF-FetchResult mittels Poppler (pdftotext)."""
+    # NEU: Vorab-Check ob der Body überhaupt Daten enthält
+    if not fetch_result.body or len(fetch_result.body) < 100:
+        logger.warning(f"PDF {url} ist leer oder zu klein zum Parsen.")
+        return ParseResult(text="", segments=[], out_links=[])
+
+    # NEU: Prüfen ob es wirklich ein PDF ist (Magic Bytes: %PDF-)
+    if not fetch_result.body.startswith(b"%PDF-"):
+        logger.warning(f"Datei von {url} ist kein valides PDF (Magic Bytes fehlen).")
+        return ParseResult(text="", segments=[], out_links=[])
+
+    try:
+        proc = subprocess.run(
+            ["pdftotext", "-layout", "-enc", "UTF-8", "-", "-"], # UTF-8 explizit erzwingen
+            input=fetch_result.body,
+            capture_output=True,
+            timeout=30  
+        )
+        
+        stderr_output = proc.stderr.decode('utf-8', errors='ignore')
+        
+        # NEU: Abfangen wenn pdftotext nur die Version/Hilfe ausgibt
+        if proc.returncode != 0 or "pdftotext version" in stderr_output.lower():
+            logger.warning(f"pdftotext konnte PDF {url} nicht verarbeiten. Stderr: {stderr_output[:50]}...")
+            return ParseResult(text="", segments=[], out_links=[])
+
     try:
         proc = subprocess.run(
             ["pdftotext", "-layout", "-", "-"],

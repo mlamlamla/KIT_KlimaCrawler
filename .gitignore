@@ -22,3 +22,5 @@ crawler/data/db/crawl.sqlite
 *.sqlite-wal
 *.sqlite-shm
 crawler/data/db/*.bak*
+*.sqlite.s
+distribution_packages/

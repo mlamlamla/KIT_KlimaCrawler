@@ -6,11 +6,9 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 from urllib.parse import urlparse
 
-
 DEFAULT_MUNI_SQLITE_PATH = Path("crawler/data/db/municipalities.sqlite")
 DEFAULT_CSV_PATH = Path("crawler/data/seeds/municipalities.csv")
 DEFAULT_CRAWL_DB_PATH = Path("crawler/data/db/crawl.sqlite")
-
 
 def _is_valid_url(url: str) -> bool:
     try:
@@ -18,7 +16,6 @@ def _is_valid_url(url: str) -> bool:
         return p.scheme in ("http", "https") and bool(p.netloc)
     except Exception:
         return False
-
 
 def _norm_domain(domain: str) -> str:
     d = (domain or "").strip().lower()
@@ -33,14 +30,12 @@ def _norm_domain(domain: str) -> str:
             return ""
     return d
 
-
 def _derive_domain_from_url(url: str) -> str:
     try:
         host = urlparse(url).netloc.lower()
         return _norm_domain(host)
     except Exception:
         return ""
-
 
 def _parse_allowed_domains(raw: Optional[str], homepage_url: str) -> Set[str]:
     domains: Set[str] = set()
@@ -58,25 +53,16 @@ def _parse_allowed_domains(raw: Optional[str], homepage_url: str) -> Set[str]:
 
     return domains
 
-
 def load_seeds_from_sqlite(
     db_path: Path = DEFAULT_MUNI_SQLITE_PATH,
     limit: Optional[int] = None,
     start: int = 0,
     end: Optional[int] = None,
 ) -> Tuple[List[Tuple[str, str]], Dict[str, Set[str]]]:
-    """
-    Returns:
-        seeds: list[(municipality_id, homepage_url)]
-        allowed_domains_by_muni: dict[municipality_id -> set(domains)]
-    Notes:
-        - start/end are applied after filtering invalid rows (stable slicing).
-        - if end is None -> no upper bound.
-    """
     if not db_path.exists():
         raise FileNotFoundError(f"municipalities.sqlite not found: {db_path}")
 
-    con = sqlite3.connect(str(db_path))
+    con = sqlite3.connect(str(db_path), timeout=30) 
     cur = con.cursor()
 
     query = """
@@ -204,7 +190,7 @@ def upsert_seed_jobs(
         return 0
 
     print("upsert_seed_jobs -> crawl_db_path =", crawl_db_path)
-    con = sqlite3.connect(str(crawl_db_path))
+    con = sqlite3.connect(str(crawl_db_path, ), timeout=30)
     try:
         ensure_seed_jobs_schema(con)  
         before = con.total_changes
