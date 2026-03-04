@@ -26,7 +26,7 @@ def default_worker_id() -> str:
 class RawWriteResult:
     doc_id: str
     raw_hash: str
-    raw_path: str
+    raw_path: str 
 
 class Storage:
 
@@ -37,15 +37,19 @@ class Storage:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.raw_dir.mkdir(parents=True, exist_ok=True)
 
-        self.conn = sqlite3.connect(str(self.db_path, ), timeout=30)
+        self.conn = sqlite3.connect(
+            str(self.db_path), 
+            timeout=60.0,            # WARTET 60 Sek bei Sperren (statt 30)
+            isolation_level=None     # Aktiviert AUTOCOMMIT (minimiert Lock-Dauer)
+        )
         self.conn.row_factory = sqlite3.Row
 
         self.conn.execute("PRAGMA journal_mode=WAL;")
         self.conn.execute("PRAGMA synchronous=NORMAL;")
-        self.conn.execute("PRAGMA temp_store=MEMORY;")
+        self.conn.execute("PRAGMA busy_timeout=60000;") 
         self.conn.execute("PRAGMA foreign_keys=ON;")
-        self.conn.execute("PRAGMA busy_timeout=5000;")
-        self.conn.execute("PRAGMA cache_size=-65536;") 
+        self.conn.execute("PRAGMA temp_store=MEMORY;")
+        self.conn.execute("PRAGMA cache_size=-64000;") 
 
         self._init_schema()
 
@@ -393,3 +397,9 @@ class Storage:
                 """,
                 (status, now, error, str(municipality_id)),
             )
+
+    def is_visited_with_error(self, url: str) -> bool:
+            """Prüft, ob eine URL bereits besucht wurde, aber einen Fehler (z.B. 404) erzeugt hat."""
+            query = "SELECT 1 FROM visited WHERE url_canonical = ? AND last_status_code != 200 LIMIT 1"
+            res = self.conn.execute(query, (url,)).fetchone()
+            return res is not None

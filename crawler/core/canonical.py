@@ -4,10 +4,12 @@ from dataclasses import dataclass
 from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 import posixpath
 import re
-from typing import Iterable
+from typing import Iterable, Optional
+from functools import lru_cache
 
 
-@dataclass(frozen=True)
+# OPTIMIERUNG 3: slots=True hinzugefügt für besseres RAM-Management
+@dataclass(frozen=True, slots=True)
 class CanonicalizeResult:
     url: str
     changed: bool
@@ -27,10 +29,11 @@ class Canonicalizer:
         strip_default_ports: bool = True,
         strip_www: bool = False,
         force_https_default_scheme: bool = False,
-        lowercase_path: bool = False,  
+        lowercase_path: bool = False,
+        enable_cache: bool = True,           # NEU
+        cache_size: int = 500_000            # NEU (Cachet eine halbe Million URLs)
     ) -> None:
         self.strip_fragment = bool(strip_fragment)
-        self.drop_query_prefixes = tuple(p.lower() for p in (drop_query_prefixes or []))
         self.drop_query_keys = frozenset(k.lower() for k in (drop_query_keys or []))
         self.normalize_trailing_slash = bool(normalize_trailing_slash)
         self.strip_default_ports = bool(strip_default_ports)
@@ -38,7 +41,23 @@ class Canonicalizer:
         self.force_https_default_scheme = bool(force_https_default_scheme)
         self.lowercase_path = bool(lowercase_path)
 
+        # OPTIMIERUNG 2: C-Regex statt Python 'any()' Schleife für Prefixe
+        valid_prefixes = [p.lower() for p in (drop_query_prefixes or []) if p]
+        if valid_prefixes:
+            escaped = [re.escape(p) for p in valid_prefixes]
+            self._prefix_re = re.compile("^(?:" + "|".join(escaped) + ")", re.IGNORECASE)
+        else:
+            self._prefix_re = None
+
+        # OPTIMIERUNG 1: Lru-Cache für die Kernmethode aktivieren
+        if enable_cache:
+            self._normalize_impl = lru_cache(maxsize=int(cache_size))(self._normalize_impl)
+
     def normalize(self, url: str) -> str:
+        """Öffentliche Methode, die den (gecachten) Implementierungsaufruf nutzt."""
+        return self._normalize_impl(url)
+
+    def _normalize_impl(self, url: str) -> str:
         """
         Returns canonical URL or "" if URL is unusable (e.g., not http(s), missing host).
         """
@@ -94,8 +113,10 @@ class Canonicalizer:
 
                 if kl in self.drop_query_keys:
                     continue
-                if self.drop_query_prefixes and any(kl.startswith(pfx) for pfx in self.drop_query_prefixes):
+                # Geänderte Logik: Regex statt For-Schleife
+                if self._prefix_re and self._prefix_re.match(kl):
                     continue
+                    
                 kept.append((k, v))
 
         kept.sort(key=lambda kv: (kv[0].lower(), kv[1]))

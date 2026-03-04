@@ -12,7 +12,6 @@ class CrawlTask:
     depth: int = 0
     parent_url: Optional[str] = None
     anchor_text: Optional[str] = None
-
     allowed_domains: frozenset[str] = field(default_factory=frozenset)
 
     def with_url(self, url: str, *, depth: Optional[int] = None, parent_url: Optional[str] = None,
@@ -33,15 +32,14 @@ class FetchResult:
     status_code: int
     content_type: Optional[str]
     body: bytes
-    headers: dict[str, str]
+    headers: Mapping[str, str]
 
     def header(self, name: str, default: str = "") -> str:
-        """Case-insensitive header lookup (headers may already be normalized, but don't assume)."""
-        ln = name.lower()
-        for k, v in self.headers.items():
-            if k.lower() == ln:
-                return v
-        return default
+        """
+        O(1) Header-Lookup. 
+        Voraussetzung: Dem FetchResult wurden bereits lowercased Keys übergeben!
+        """
+        return self.headers.get(name.lower(), default)
 
 @dataclass(frozen=True, slots=True)
 class Segment:
@@ -50,12 +48,10 @@ class Segment:
     text: str
     page_ref: Optional[str] = None
 
-
 @dataclass(frozen=True, slots=True)
 class ParseResult:
     text: str
     segments: Sequence[Segment]
-
     out_links: Sequence[tuple[str, Optional[str]]]
 
     meta: Mapping[str, Any] = field(default_factory=dict)

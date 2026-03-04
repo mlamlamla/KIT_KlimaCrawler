@@ -8,6 +8,10 @@ from typing import Dict, Iterable, Mapping, Optional, Set, Tuple
 from urllib.parse import urlsplit
 
 import requests
+from requests.adapters import HTTPAdapter
+import urllib3
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 from crawler.core.canonical import Canonicalizer
 from crawler.core.models import CrawlTask, FetchResult
@@ -16,59 +20,37 @@ from crawler.core.parsers.pdf_parser import parse_pdf
 from crawler.core.scheduler import PriorityScheduler
 from crawler.core.storage import Storage, default_worker_id
 
-# ==========================================
-# REGEX SCORING PATTERNS (Vorkompiliert für max. Speed)
-# ==========================================
-HIGH_IMPACT_REGEX = [
-    re.compile(p, re.IGNORECASE) for p in [
-        # Klimastrategie & Bilanzierung
-        r'\bklima\w*', r'\bklimaschutz\w*', r'\bklimaanpassung\w*', r'\bklimaneutral\w*',
-        r'\bco2\b', r'\bthg\b', r'\btreibhausgas\w*', r'\bemission\w*', r'\btreibhausgasbilanz\w*',
-        r'\benergiebericht\w*', r'\bklimabericht\w*', r'\bklimaschutzkonzept\w*', r'\bklimafahrplan\w*',
-        r'\benergie-?\s?und\s?klimakonzept\w*',
-        
-        # Energie & Infrastruktur (mit (?:ä|ae) Umlaut-Sicherung für URLs)
-        r'\benergie\w*', r'\berneuerbar\w*', r'\bfernw(?:ä|ae)rme\w*', r'\bnahw(?:ä|ae)rme\w*',
-        r'\bw(?:ä|ae)rmenetz\w*', r'\bbhkw\b', r'\bblockheizkraftwerk\w*', r'\bw(?:ä|ae)rmepump\w*',
-        r'\bgeotherm\w*', r'\bbiogas\w*', r'\bwasserkraft\w*', r'\bwasserstoff\b', r'\bh2\b',
-        r'\bsolar\w*', r'\bphotovoltaik\w*', r'\bpv\b', r'\bwindkraft\w*', r'\bwindenergie\w*',
-        r'\bspeicher\w*', r'\bstromnetz\w*', r'\bsmart\s?grid\w*', r'\bled\b', r'\bstrombeschaffung\w*',
-        
-        # Gebäude & Stadtplanung
-        r'\bsanier\w*', r'\bd(?:ä|ae)mm\w*', r'\benergieeffizienz\w*', r'\bpassivhaus\w*',
-        r'\beffizienzhaus\w*', r'\bkfw-\d+', r'\bgeg\b', r'\bgeb(?:ä|ae)udeenergiegesetz\w*',
-        r'\bquartierskonzept\w*', r'\bfl(?:ä|ae)chennutzungsplan\w*', r'\bfnp\b', r'\bbebauungsplan\w*',
-        r'\bnachverdichtung\w*',
-        
-        # Mobilität
-        r'\bmobilit(?:ä|ae)t\w*', r'\bverkehr\w*', r'\bverkehrswende\w*', r'\bemobilit(?:ä|ae)t\w*',
-        r'\belektromobilit(?:ä|ae)t\w*', r'\bradverkehr\w*', r'\bradweg\w*', r'\bfahrrad\w*',
-        r'\bverkehrsentwicklungsplan\w*', r'\bvep\b', r'\blades(?:ä|ae)ul\w*', r'\bwallbox\w*',
-        r'\bladinfrastruktur\w*', r'\bcarsharing\w*', r'\b(?:ö|oe)pnv\b',
-        
-        # Fördermittel & Finanzierung
-        r'\bf(?:ö|oe)rder\w*', r'\bzuschuss\w*', r'\bmittel\w*', r'\bfinanz\w*', r'\binvestition\w*',
-        r'\bprojekttr(?:ä|ae)ger\w*', r'\bf(?:ö|oe)rderprogramm\w*', r'\bbewilligungsbescheid\w*',
-        r'\beigenanteil\w*', r'\bnki\b', r'\bkfw\b', r'\bbafa\b', r'\befre\b', r'\beler\b',
-        r'\beu-?f(?:ö|oe)rder\w*',
-        
-        # Governance & Ratsdokumente
-        r'\bbeschluss\w*', r'\bbeschlussvorlage\w*', r'\bantrag\w*', r'\bdrucksache\w*',
-        r'\bvorlage\w*', r'\btagesordnungspunkt\w*', r'\bsitzung\w*', r'\bniederschrift\w*',
-        r'\bprotokoll\w*', r'\bklimabeirat\w*', r'\bumweltbeirat\w*', r'\bstadtwerk\w*'
-    ]
+_HIGH_IMPACT_WORDS = [
+    r'klima\w*', r'klimaschutz\w*', r'klimaanpassung\w*', r'klimaneutral\w*',
+    r'co2\b', r'thg\b', r'treibhausgas\w*', r'emission\w*', r'treibhausgasbilanz\w*',
+    r'energiebericht\w*', r'klimabericht\w*', r'klimaschutzkonzept\w*', r'klimafahrplan\w*',
+    r'energie-?\s?und\s?klimakonzept\w*', r'energie\w*', r'erneuerbar\w*', r'fernw(?:ä|ae)rme\w*', 
+    r'nahw(?:ä|ae)rme\w*', r'w(?:ä|ae)rmenetz\w*', r'bhkw\b', r'blockheizkraftwerk\w*', r'w(?:ä|ae)rmepump\w*',
+    r'geotherm\w*', r'biogas\w*', r'wasserkraft\w*', r'wasserstoff\b', r'h2\b',
+    r'solar\w*', r'photovoltaik\w*', r'pv\b', r'windkraft\w*', r'windenergie\w*',
+    r'speicher\w*', r'stromnetz\w*', r'smart\s?grid\w*', r'led\b', r'strombeschaffung\w*',
+    r'sanier\w*', r'd(?:ä|ae)mm\w*', r'energieeffizienz\w*', r'passivhaus\w*',
+    r'effizienzhaus\w*', r'kfw-\d+', r'geg\b', r'geb(?:ä|ae)udeenergiegesetz\w*',
+    r'quartierskonzept\w*', r'fl(?:ä|ae)chennutzungsplan\w*', r'fnp\b', r'bebauungsplan\w*',
+    r'nachverdichtung\w*', r'mobilit(?:ä|ae)t\w*', r'verkehr\w*', r'verkehrswende\w*', r'emobilit(?:ä|ae)t\w*',
+    r'elektromobilit(?:ä|ae)t\w*', r'radverkehr\w*', r'radweg\w*', r'fahrrad\w*',
+    r'verkehrsentwicklungsplan\w*', r'vep\b', r'lades(?:ä|ae)ul\w*', r'wallbox\w*',
+    r'ladinfrastruktur\w*', r'carsharing\w*', r'(?:ö|oe)pnv\b', r'f(?:ö|oe)rder\w*', 
+    r'zuschuss\w*', r'mittel\w*', r'finanz\w*', r'investition\w*',
+    r'projekttr(?:ä|ae)ger\w*', r'f(?:ö|oe)rderprogramm\w*', r'bewilligungsbescheid\w*',
+    r'eigenanteil\w*', r'nki\b', r'kfw\b', r'bafa\b', r'efre\b', r'eler\b',
+    r'eu-?f(?:ö|oe)rder\w*', r'beschluss\w*', r'beschlussvorlage\w*', r'antrag\w*', r'drucksache\w*',
+    r'vorlage\w*', r'tagesordnungspunkt\w*', r'sitzung\w*', r'niederschrift\w*',
+    r'protokoll\w*', r'klimabeirat\w*', r'umweltbeirat\w*', r'stadtwerk\w*'
 ]
+HIGH_IMPACT_REGEX = re.compile(r'\b(?:' + '|'.join(_HIGH_IMPACT_WORDS) + r')', re.IGNORECASE)
 
-NEGATIVE_REGEX = [
-    re.compile(p, re.IGNORECASE) for p in [
-        r'\bimpressum\b', r'\bdatenschutz\b', r'\bbarrierefreiheit\b',
-        r'\bstellenangebot\w*', r'\b(?:ö|oe)ffnungszeiten\b', r'\bkontakt\b'
-    ]
+_NEGATIVE_WORDS = [
+    r'impressum\b', r'datenschutz\b', r'barrierefreiheit\b',
+    r'stellenangebot\w*', r'(?:ö|oe)ffnungszeiten\b', r'kontakt\b'
 ]
+NEGATIVE_REGEX = re.compile(r'\b(?:' + '|'.join(_NEGATIVE_WORDS) + r')', re.IGNORECASE)
 
-# ==========================================
-# CRAWLER TRAP DETECTOR
-# ==========================================
 try:
     from crawler.core.traps import TrapDetector
     _trap_detector = TrapDetector(
@@ -140,6 +122,11 @@ class Engine:
         )
 
         self._session = requests.Session()
+        
+        adapter = HTTPAdapter(pool_connections=20, pool_maxsize=20, max_retries=1)
+        self._session.mount('http://', adapter)
+        self._session.mount('https://', adapter)
+        
         self._session.headers.update(
             {
                 "User-Agent": user_agent,
@@ -160,9 +147,20 @@ class Engine:
     @staticmethod
     def _norm_domain(domain: str) -> str:
         d = (domain or "").strip().lower()
-        if not d:
+        if not d: 
             return ""
-        return d.split(":", 1)[0].rstrip(".")
+
+        if "://" in d or d.startswith("//"):
+            try:
+                from urllib.parse import urlsplit
+                parsed = urlsplit(d if "://" in d else "http:" + d)
+                d = parsed.netloc
+            except Exception:
+                pass
+        d = d.split(":", 1)[0]
+        if d.startswith("www."):
+            d = d[4:]
+        return d.rstrip(".")
 
     @staticmethod
     def _split(url: str):
@@ -198,18 +196,15 @@ class Engine:
         if any(p in u for p in ris_patterns):
             score += 200
 
-        # Die Regex-Evaluation
-        for pattern in HIGH_IMPACT_REGEX:
-            if pattern.search(u):
-                score += 150
-            if a and pattern.search(a):
-                score += 100
+        if HIGH_IMPACT_REGEX.search(u):
+            score += 150
+        if a and HIGH_IMPACT_REGEX.search(a):
+            score += 100
 
-        for pattern in NEGATIVE_REGEX:
-            if pattern.search(u):
-                score -= 50
-            if a and pattern.search(a):
-                score -= 20
+        if NEGATIVE_REGEX.search(u):
+            score -= 50
+        if a and NEGATIVE_REGEX.search(a):
+            score -= 20
 
         return score
 
@@ -228,26 +223,42 @@ class Engine:
         _, domain = self._scheme_domain(url)
         self._polite_sleep(domain)
 
+        lim_bytes = int(self.limits.max_file_size_mb) * 1024 * 1024
+        body = b""
+        
         try:
-            resp = self._session.get(
+            with self._session.get(
                 url,
                 timeout=(self.timeout_connect, self.timeout_read),
                 allow_redirects=True,
                 headers={"Connection": "close"},
+                verify=False,
+                stream=True  # GANZ WICHTIG: Lade nur Header, stoppe bei zu großen Files!
+            ) as resp:
+                
+                status = int(resp.status_code)
+                headers = {str(k): str(v) for k, v in (resp.headers or {}).items()}
+                content_type = str(resp.headers.get("Content-Type") or "") or None
+                url_final = str(resp.url)
+                
+                cl = headers.get("Content-Length")
+                if cl and cl.isdigit() and int(cl) > lim_bytes:
+                    body = b""
+                else:
+                    body = resp.content
+
+            return FetchResult(
+                url_final=url_final,
+                status_code=status,
+                content_type=content_type,
+                body=body,
+                headers=headers,
             )
+
         except (requests.exceptions.ConnectTimeout, requests.exceptions.ReadTimeout) as e:
             raise RuntimeError(f"timeout:{type(e).__name__}") from e
         except requests.exceptions.RequestException as e:
             raise RuntimeError(f"request_error:{type(e).__name__}:{e}") from e
-
-        headers = {str(k): str(v) for k, v in (resp.headers or {}).items()}
-        return FetchResult(
-            url_final=str(resp.url),
-            status_code=int(resp.status_code),
-            content_type=str(resp.headers.get("Content-Type") or "") or None,
-            body=resp.content or b"",
-            headers=headers,
-        )
 
     def _over_size_limit(self, fr: FetchResult) -> bool:
         lim_bytes = int(self.limits.max_file_size_mb) * 1024 * 1024
@@ -326,7 +337,12 @@ class Engine:
                 doc_id = self.storage.get_document_id_by_canonical_url(url_c)
                 if doc_id is not None:
                     self.storage.link_document_to_municipality(task.municipality_id, doc_id)
-                continue
+                
+                if self.storage.is_visited_with_error(url_c):
+                    print(f"[retry] {task.url} (previously errored)", flush=True)
+                else:
+                    print(f"[skip] {task.url} (already visited)", flush=True)
+                    continue
 
             try:
                 t0 = time.time()
@@ -358,8 +374,11 @@ class Engine:
 
                         next_depth = task.depth + 1
                         if next_depth <= max_depth:
-                            for link, anchor in parse_result.out_links:
-                                link_c = canon(link)
+                            for link in parse_result.out_links:
+                                link_url = getattr(link, "url", link[0] if isinstance(link, tuple) else link)
+                                anchor = getattr(link, "anchor", link[1] if isinstance(link, tuple) else "")
+                                
+                                link_c = canon(link_url)
                                 if not link_c or not self._is_allowed(task.municipality_id, link_c):
                                     continue
                                 

@@ -3,18 +3,25 @@ from __future__ import annotations
 
 import subprocess
 import logging
+import re
 from typing import Any
 
 from crawler.core.models import ParseResult, Segment
 
 logger = logging.getLogger(__name__)
 
+_RE_EXCESSIVE_SPACES = re.compile(r"[ \t]{3,}")
+
+def _clean_pdf_text(text: str) -> str:
+    cleaned = _RE_EXCESSIVE_SPACES.sub(" ", text)
+    return cleaned.strip()
+
 def parse_pdf(fetch_result: Any, url: str) -> ParseResult:
     if not fetch_result.body or len(fetch_result.body) < 100:
         logger.warning(f"PDF {url} ist leer oder zu klein zum Parsen.")
         return ParseResult(text="", segments=[], out_links=[])
 
-    if not fetch_result.body.startswith(b"%PDF-"):
+    if b"%PDF-" not in fetch_result.body[:1024]:
         logger.warning(f"Datei von {url} ist kein valides PDF (Magic Bytes fehlen).")
         return ParseResult(text="", segments=[], out_links=[])
 
@@ -34,11 +41,12 @@ def parse_pdf(fetch_result: Any, url: str) -> ParseResult:
         
         full_text = proc.stdout.decode("utf-8", errors="replace")
         
-        pages = full_text.split('\x0c')
+        pages = full_text.split('\x0c')  # \x0c ist das Form-Feed (Seitenumbruch) Zeichen
         segments = []
         
         for i, page_text in enumerate(pages):
-            cleaned_text = page_text.strip()
+            cleaned_text = _clean_pdf_text(page_text)
+            
             if cleaned_text:
                 segments.append(
                     Segment(
@@ -49,7 +57,11 @@ def parse_pdf(fetch_result: Any, url: str) -> ParseResult:
                     )
                 )
                 
-        return ParseResult(text=full_text, segments=segments, out_links=[])
+        return ParseResult(
+            text=_clean_pdf_text(full_text), 
+            segments=segments, 
+            out_links=[]
+        )
         
     except FileNotFoundError:
         logger.error("'pdftotext' fehlt. Bitte Poppler installieren (z.B. 'brew install poppler').")

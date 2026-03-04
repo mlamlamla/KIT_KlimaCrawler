@@ -6,6 +6,7 @@ import sqlite3
 import threading
 import time
 import logging
+import sys
 from datetime import timedelta
 
 from crawler.core.engine import Engine, EngineLimits
@@ -48,18 +49,17 @@ KLIMA_KEYWORDS = {
 KLIMA_LIMITS = EngineLimits(
     max_depth=12,                 
     max_pages_per_muni=25000,     
-    max_file_size_mb=100          
+    max_file_size_mb=200  # Auf 200 MB angehoben für große Pläne        
 )
 
 def _heartbeat_loop(db_path: str, municipality_id: str, worker_id: str, stop: threading.Event) -> None:
-    con = sqlite3.connect(db_path, timeout=30.0)
+    con = sqlite3.connect(db_path, timeout=60.0, isolation_level=None)
     try:
-        con.execute("PRAGMA busy_timeout=5000;")
+        con.execute("PRAGMA busy_timeout=60000;")
         con.execute("PRAGMA journal_mode=WAL;")
         while not stop.wait(HEARTBEAT_EVERY_SECONDS):
             try:
-                with con:
-                    heartbeat_job(con, municipality_id, worker_id)
+                heartbeat_job(con, municipality_id, worker_id)
             except sqlite3.OperationalError:
                 pass
             except Exception:
@@ -84,8 +84,8 @@ def main() -> None:
         worker_id=worker_id
     )
 
-    con = sqlite3.connect(args.db, timeout=5.0)
-    con.execute("PRAGMA busy_timeout=5000;")
+    con = sqlite3.connect(args.db, timeout=60.0, isolation_level=None)
+    con.execute("PRAGMA busy_timeout=60000;")
     con.execute("PRAGMA journal_mode=WAL;")
 
     jobs_processed = 0
@@ -101,8 +101,7 @@ def main() -> None:
                 logger.info(f"✅ Limit von {args.limit} erreicht. Worker beendet.")
                 break
 
-            with con:
-                job = claim_next_job(con, worker_id=worker_id, stale_after_seconds=args.stale_after)
+            job = claim_next_job(con, worker_id=worker_id, stale_after_seconds=args.stale_after)
 
             if job is None:
                 logger.info("💤 Keine 'pending' Jobs gefunden. Beende.")
@@ -120,18 +119,22 @@ def main() -> None:
             try:
                 logger.info(f"▶️ Bearbeite Gemeinde {job.municipality_id} ({job.seed_url})")
                 
-                # Crawler starten
                 engine.run([(job.municipality_id, job.seed_url)])
 
-                with con:
-                    mark_done(con, job.municipality_id, worker_id)
+                mark_done(con, job.municipality_id, worker_id)
                 
                 duration = timedelta(seconds=int(time.time() - muni_start_time))
                 logger.info(f"✅ Gemeinde {job.municipality_id} fertiggestellt. Dauer: {duration}.")
 
+            except KeyboardInterrupt:
+                logger.warning(f"⚠️ Strg+C gedrückt! Beende Gemeinde {job.municipality_id} unvollständig.")
+                mark_failed(con, job.municipality_id, worker_id, "Abgebrochen durch Benutzer (SIGINT)")
+                stop.set()
+                hb.join(timeout=2.0)
+                sys.exit(0)
+
             except Exception as e:
-                with con:
-                    mark_failed(con, job.municipality_id, worker_id, str(e))
+                mark_failed(con, job.municipality_id, worker_id, str(e))
                 logger.error(f"❌ Fehler bei {job.municipality_id}: {e}", exc_info=True)
 
             finally:
@@ -145,4 +148,7 @@ def main() -> None:
         logger.info(f"🏁 Fertig: {jobs_processed} Kommunen in {total_time} verarbeitet.")
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        sys.exit(0)
