@@ -16,7 +16,7 @@
 | pkg_08 | ⏳ Frei |                |
 | pkg_09 | ⏳ Frei |                |
 | pkg_10 | ⏳ Frei | mlamlamla      |
-| pkg_11 | ⏳ Frei |                |
+| pkg_11 | ⏳ Frei | mlamlamla               |
 | pkg_12 | ⏳ Frei |                |
 | pkg_13 | ⏳ Frei |                |
 | pkg_14 | ⏳ Frei |                |
