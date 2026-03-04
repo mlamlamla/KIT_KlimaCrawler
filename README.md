@@ -187,6 +187,42 @@ sqlite3 crawler/data/db/crawl.sqlite "SELECT segment_type, COUNT(*) FROM segment
 - `seed_jobs.status` steht auf `done`  
 - Tabellen `documents_raw` und `segments` sind befüllt  
 
+- Fehler können aufkommen! Um eine Übersicht zu haben, könnt ihr euer Terminal splitten und 
+
+```bash
+while true; do
+  clear;
+  echo "=== CRAWLER PULS ($(date +%H:%M:%S)) ===";
+  sqlite3 crawler/data/db/crawl.sqlite "
+    SELECT 'Status ' || status || ': ' || count(*) FROM seed_jobs GROUP BY status;
+    SELECT 'Gesamt-Dokumente: ' || count(*) FROM documents_raw;
+    SELECT 'Davon PDFs:       ' || count(*) FROM documents_raw WHERE url_canonical LIKE '%.pdf';
+  ";
+  echo "----------------------------------------";
+  echo "Zuletzt gefundene PDFs:";
+  sqlite3 crawler/data/db/crawl.sqlite "SELECT url_canonical FROM documents_raw WHERE url_canonical LIKE '%.pdf' ORDER BY rowid DESC LIMIT 5;";
+  sleep 30;
+done
+```
+
+einfügen. 
+
+### Oder
+
+```bash
+brew install watch
+```
+
+```bash
+watch -n 30 "echo '=== CRAWLER DASHBOARD ===' && \
+sqlite3 crawler/data/db/crawl.sqlite \"SELECT 'Status ' || status || ': ' || count(*) FROM seed_jobs GROUP BY status;\" && \
+echo '---' && \
+echo 'Gesamt-Dokumente:' && \
+sqlite3 crawler/data/db/crawl.sqlite \"SELECT count(*) FROM documents_raw;\" && \
+echo '---' && \
+echo 'Neueste Nachhaltigkeits-PDFs:' && \
+sqlite3 crawler/data/db/crawl.sqlite \"SELECT municipality_id, url_canonical FROM documents_raw WHERE (url_canonical LIKE '%klima%' OR url_canonical LIKE '%solar%' OR url_canonical LIKE '%mobil%' OR url_canonical LIKE '%haushalt%') AND url_canonical LIKE '%.pdf' ORDER BY rowid DESC LIMIT 5;\""
+```
 ---
 
 ## ⚠ Fehlerquellen

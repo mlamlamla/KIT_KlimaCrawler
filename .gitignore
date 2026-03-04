@@ -25,3 +25,5 @@ crawler/data/db/*.bak*
 
 # Prüfung Fortschritt
 check_status.ipynb
+*.sqlite.s
+distribution_packages/

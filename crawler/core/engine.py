@@ -1,6 +1,8 @@
+# crawler/core/engine.py
 from __future__ import annotations
 
 import time
+import re
 from dataclasses import dataclass
 from typing import Dict, Iterable, Mapping, Optional, Set, Tuple
 from urllib.parse import urlsplit
@@ -14,6 +16,59 @@ from crawler.core.parsers.pdf_parser import parse_pdf
 from crawler.core.scheduler import PriorityScheduler
 from crawler.core.storage import Storage, default_worker_id
 
+# ==========================================
+# REGEX SCORING PATTERNS (Vorkompiliert für max. Speed)
+# ==========================================
+HIGH_IMPACT_REGEX = [
+    re.compile(p, re.IGNORECASE) for p in [
+        # Klimastrategie & Bilanzierung
+        r'\bklima\w*', r'\bklimaschutz\w*', r'\bklimaanpassung\w*', r'\bklimaneutral\w*',
+        r'\bco2\b', r'\bthg\b', r'\btreibhausgas\w*', r'\bemission\w*', r'\btreibhausgasbilanz\w*',
+        r'\benergiebericht\w*', r'\bklimabericht\w*', r'\bklimaschutzkonzept\w*', r'\bklimafahrplan\w*',
+        r'\benergie-?\s?und\s?klimakonzept\w*',
+        
+        # Energie & Infrastruktur (mit (?:ä|ae) Umlaut-Sicherung für URLs)
+        r'\benergie\w*', r'\berneuerbar\w*', r'\bfernw(?:ä|ae)rme\w*', r'\bnahw(?:ä|ae)rme\w*',
+        r'\bw(?:ä|ae)rmenetz\w*', r'\bbhkw\b', r'\bblockheizkraftwerk\w*', r'\bw(?:ä|ae)rmepump\w*',
+        r'\bgeotherm\w*', r'\bbiogas\w*', r'\bwasserkraft\w*', r'\bwasserstoff\b', r'\bh2\b',
+        r'\bsolar\w*', r'\bphotovoltaik\w*', r'\bpv\b', r'\bwindkraft\w*', r'\bwindenergie\w*',
+        r'\bspeicher\w*', r'\bstromnetz\w*', r'\bsmart\s?grid\w*', r'\bled\b', r'\bstrombeschaffung\w*',
+        
+        # Gebäude & Stadtplanung
+        r'\bsanier\w*', r'\bd(?:ä|ae)mm\w*', r'\benergieeffizienz\w*', r'\bpassivhaus\w*',
+        r'\beffizienzhaus\w*', r'\bkfw-\d+', r'\bgeg\b', r'\bgeb(?:ä|ae)udeenergiegesetz\w*',
+        r'\bquartierskonzept\w*', r'\bfl(?:ä|ae)chennutzungsplan\w*', r'\bfnp\b', r'\bbebauungsplan\w*',
+        r'\bnachverdichtung\w*',
+        
+        # Mobilität
+        r'\bmobilit(?:ä|ae)t\w*', r'\bverkehr\w*', r'\bverkehrswende\w*', r'\bemobilit(?:ä|ae)t\w*',
+        r'\belektromobilit(?:ä|ae)t\w*', r'\bradverkehr\w*', r'\bradweg\w*', r'\bfahrrad\w*',
+        r'\bverkehrsentwicklungsplan\w*', r'\bvep\b', r'\blades(?:ä|ae)ul\w*', r'\bwallbox\w*',
+        r'\bladinfrastruktur\w*', r'\bcarsharing\w*', r'\b(?:ö|oe)pnv\b',
+        
+        # Fördermittel & Finanzierung
+        r'\bf(?:ö|oe)rder\w*', r'\bzuschuss\w*', r'\bmittel\w*', r'\bfinanz\w*', r'\binvestition\w*',
+        r'\bprojekttr(?:ä|ae)ger\w*', r'\bf(?:ö|oe)rderprogramm\w*', r'\bbewilligungsbescheid\w*',
+        r'\beigenanteil\w*', r'\bnki\b', r'\bkfw\b', r'\bbafa\b', r'\befre\b', r'\beler\b',
+        r'\beu-?f(?:ö|oe)rder\w*',
+        
+        # Governance & Ratsdokumente
+        r'\bbeschluss\w*', r'\bbeschlussvorlage\w*', r'\bantrag\w*', r'\bdrucksache\w*',
+        r'\bvorlage\w*', r'\btagesordnungspunkt\w*', r'\bsitzung\w*', r'\bniederschrift\w*',
+        r'\bprotokoll\w*', r'\bklimabeirat\w*', r'\bumweltbeirat\w*', r'\bstadtwerk\w*'
+    ]
+]
+
+NEGATIVE_REGEX = [
+    re.compile(p, re.IGNORECASE) for p in [
+        r'\bimpressum\b', r'\bdatenschutz\b', r'\bbarrierefreiheit\b',
+        r'\bstellenangebot\w*', r'\b(?:ö|oe)ffnungszeiten\b', r'\bkontakt\b'
+    ]
+]
+
+# ==========================================
+# CRAWLER TRAP DETECTOR
+# ==========================================
 try:
     from crawler.core.traps import TrapDetector
     _trap_detector = TrapDetector(
@@ -143,31 +198,18 @@ class Engine:
         if any(p in u for p in ris_patterns):
             score += 200
 
-        high_impact_keywords = [
-            'klima', 'energie', 'wärme', 'solar', 'pv', 'wind', 'strom', 
-            'fahrrad', 'radweg', 'mobilität', 'verkehr', 'ladesäule', 'wallbox', 'önpv',
-            'nachhaltig', 'umwelt', 'sanierung', 'dämmung', 'holzbau', 'begrünung',
-            'förder', 'zuschuss', 'mittel', 'haushalt', 'finanz', 'investition',
-            'nki', 'kfw', 'bafa', 'efre', 'eler', 'eu-förderung', 'spende',
-            'stadtwerke', 'evp', 'betreiber', 'investor', 'ausschreibung',
-            'rat', 'beschluss', 'sitzung', 'protokoll', 'niederschrift'
-        ]
-        
-        for kw in high_impact_keywords:
-            if kw in u:
+        # Die Regex-Evaluation
+        for pattern in HIGH_IMPACT_REGEX:
+            if pattern.search(u):
                 score += 150
-            if a and kw in a:
+            if a and pattern.search(a):
                 score += 100
 
-        for kw in self.keywords.get("positive", []):
-            k = str(kw).lower()
-            if k and k in u: score += 10
-            if k and a and k in a: score += 5
-
-        for kw in self.keywords.get("negative", []):
-            k = str(kw).lower()
-            if k and k in u: score -= 50
-            if k and a and k in a: score -= 20
+        for pattern in NEGATIVE_REGEX:
+            if pattern.search(u):
+                score -= 50
+            if a and pattern.search(a):
+                score -= 20
 
         return score
 
