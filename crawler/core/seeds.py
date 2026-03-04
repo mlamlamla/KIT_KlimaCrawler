@@ -7,7 +7,8 @@ from typing import Dict, Iterable, List, Optional, Set, Tuple
 from urllib.parse import urlparse
 
 
-DEFAULT_MUNI_SQLITE_PATH = Path("crawler/data/db/crawl.sqlite")
+# DEFAULT_MUNI_SQLITE_PATH = Path("crawler/data/db/crawl.sqlite")
+DEFAULT_MUNI_SQLITE_PATH = Path("crawler/data/db/municipalities.sqlite")
 DEFAULT_CSV_PATH = Path("crawler/data/seeds/municipalities.csv")
 DEFAULT_CRAWL_DB_PATH = Path("crawler/data/db/crawl.sqlite")
 

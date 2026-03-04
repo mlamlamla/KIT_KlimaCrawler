@@ -22,3 +22,6 @@ crawler/data/db/crawl.sqlite
 *.sqlite-wal
 *.sqlite-shm
 crawler/data/db/*.bak*
+
+# Prüfung Fortschritt
+check_status.ipynb
