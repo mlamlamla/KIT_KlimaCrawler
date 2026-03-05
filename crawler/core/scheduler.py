@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import heapq
-from dataclasses import dataclass
+from dataclasses import dataclass, field 
 from typing import List, Optional
 
 from crawler.core.models import CrawlTask
@@ -12,8 +12,7 @@ class _HeapItem:
     neg_priority: int
     depth: int
     seq: int
-    task: CrawlTask  
-
+    task: CrawlTask = field(compare=False) 
 
 class PriorityScheduler:
 

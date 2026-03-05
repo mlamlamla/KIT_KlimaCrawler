@@ -66,42 +66,39 @@ class LinkExtractor:
         host = host.split(":", 1)[0]
         return any(host == d or host.endswith("." + d) for d in allowed_domains)
 
-    def extract_links(
+def extract_links(
         self,
         html: bytes,
         base_url: str,
         allowed_domains: Optional[set[str]] = None,
-    ) -> list[tuple[str, str]]:
+    ) -> list[Link]: # <- Rückgabetyp korrigiert auf list[Link]
         allow = (
             frozenset(d.strip().lower() for d in allowed_domains if d and d.strip())
             if allowed_domains
             else frozenset()
         )
 
-        soup = BeautifulSoup(html, "lxml")
-        out: list[tuple[str, str]] = []
+        try:
+            soup = BeautifulSoup(html, "lxml")
+        except Exception as e:
+            return []
+
+        out: list[Link] = [] # <- Liste für Objekte
         seen: set[str] = set()
 
         for tag in soup.find_all("a", href=True):
             href = str(tag.get("href", "")).strip()
-            if not href:
-                continue
-
-            if href.startswith("#") or _SCHEMES_BLOCK_RE.match(href):
+            if not href or href.startswith("#") or _SCHEMES_BLOCK_RE.match(href):
                 continue
 
             url = self._normalize_url(base_url, href)
-            if not url:
-                continue
-            if url in seen:
+            if not url or url in seen:
                 continue
 
             if not self._is_http(url):
                 continue
 
-            if self._is_blocked_extension(url):
-                continue
-            if self._is_blocked_path(url):
+            if self._is_blocked_extension(url) or self._is_blocked_path(url):
                 continue
 
             if allow:
@@ -111,6 +108,7 @@ class LinkExtractor:
 
             seen.add(url)
             anchor = self._clean_anchor(tag.get_text(" ", strip=True))
-            out.append((url, anchor))
+            
+            out.append(Link(url=url, anchor=anchor)) 
 
         return out

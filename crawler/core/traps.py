@@ -19,18 +19,14 @@ class TrapConfig:
 
 class TrapDetector:
     """
-    Conservative trap detection to prevent infinite crawl spaces.
-    Recall-first: blocks only obvious explosion sources.
-
-    Optimizations vs original:
-    - O(1) membership structures where possible (sets)
-    - early-exit cheap checks (length, repeated params)
-    - precompiled regex, fewer per-call allocations
-    - optional caching for repeated URL checks
-    - supports depth-based pagination guard
+    Ultra-Fast Trap Detection.
+    Optimizations:
+    - Combined Regex (Aho-Corasick style via C-engine) instead of Python loops
+    - Zero-allocation pre-checks for query lengths
+    - Separation of path and query to prevent false positives
     """
 
-    _RE_EXT = re.compile(r"\.([a-z0-9]{1,6})(?:\?|$)", re.IGNORECASE)
+    _RE_EXT = re.compile(r"\.([a-z0-9]{1,6})$", re.IGNORECASE)
     _RE_PAGE_NUM = re.compile(r"(?:/page/|page=|offset=|start=)(\d+)", re.IGNORECASE)
     _RE_QUERY_SPLIT = re.compile(r"[&;]")
 
@@ -58,41 +54,50 @@ class TrapDetector:
         )
 
         self._block_ext = set(self.cfg.block_extensions)
-        self._pagination_tokens = set(self.cfg.pagination_tokens)
-        self._block_path_patterns = self.cfg.block_path_patterns
+        
+        if self.cfg.block_path_patterns:
+            escaped_paths = [re.escape(p) for p in self.cfg.block_path_patterns]
+            self._path_block_re = re.compile("|".join(escaped_paths), re.IGNORECASE)
+        else:
+            self._path_block_re = None
+
+        if self.cfg.pagination_tokens:
+            escaped_tokens = [re.escape(t) for t in self.cfg.pagination_tokens]
+            self._pagination_re = re.compile("|".join(escaped_tokens), re.IGNORECASE)
+        else:
+            self._pagination_re = None
 
         if enable_cache:
-            self._should_block_impl = lru_cache(maxsize=int(cache_size))(self._should_block_impl)  
-        else:
-            self._should_block_impl = self._should_block_impl 
+            self._should_block_impl = lru_cache(maxsize=int(cache_size))(self._should_block_impl)
 
     def should_block(self, url: str, depth: int) -> bool:
         return bool(self._should_block_impl(url, int(depth)))
 
     def _should_block_impl(self, url: str, depth: int) -> bool:
-        if not url:
+        if not url or len(url) > self.cfg.max_url_length:
             return True
 
-        if len(url) > self.cfg.max_url_length:
+        qpos = url.find("?")
+        if qpos != -1:
+            path_part = url[:qpos].lower()
+            query_part = url[qpos + 1 :].lower()
+        else:
+            path_part = url.lower()
+            query_part = ""
+
+        m = self._RE_EXT.search(path_part)
+        if m and m.group(1) in self._block_ext:
             return True
 
-        u = url.lower()
-
-        m = self._RE_EXT.search(u)
-        if m and m.group(1).lower() in self._block_ext:
+        if self._path_block_re and self._path_block_re.search(path_part):
             return True
 
-        for pat in self._block_path_patterns:
-            if pat in u:
+        if query_part:
+            param_count = query_part.count("&") + query_part.count(";") + 1
+            if param_count > self.cfg.max_query_params:
                 return True
 
-        qpos = u.find("?")
-        if qpos != -1 and qpos + 1 < len(u):
-            query = u[qpos + 1 :]
-            parts = self._RE_QUERY_SPLIT.split(query) if query else []
-            if len(parts) > self.cfg.max_query_params:
-                return True
-
+            parts = self._RE_QUERY_SPLIT.split(query_part)
             counts: dict[str, int] = {}
             for part in parts:
                 if not part:
@@ -100,20 +105,19 @@ class TrapDetector:
                 key = part.split("=", 1)[0]
                 if not key:
                     continue
-                c = counts.get(key, 0) + 1
-                if c > self.cfg.max_repeated_param:
+                counts[key] = counts.get(key, 0) + 1
+                if counts[key] > self.cfg.max_repeated_param:
                     return True
-                counts[key] = c
 
-        if self._pagination_tokens and any(tok in u for tok in self._pagination_tokens):
-            m2 = self._RE_PAGE_NUM.search(u)
+        if self._pagination_re and self._pagination_re.search(url):
+            m2 = self._RE_PAGE_NUM.search(url)
             if m2:
                 try:
-                    n = int(m2.group(1))
-                    if n > self.cfg.max_pagination_depth:
+                    if int(m2.group(1)) > self.cfg.max_pagination_depth:
                         return True
                 except ValueError:
                     pass
+            
             if depth > self.cfg.max_pagination_depth:
                 return True
 

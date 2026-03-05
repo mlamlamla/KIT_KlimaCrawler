@@ -19,8 +19,10 @@ RAW_DIR = Path("crawler/data/raw")
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
+
 def default_worker_id() -> str:
     return f"{socket.gethostname()}:{os.getpid()}"
+
 
 @dataclass(frozen=True)
 class RawWriteResult:
@@ -28,8 +30,8 @@ class RawWriteResult:
     raw_hash: str
     raw_path: str
 
-class Storage:
 
+class Storage:
     def __init__(self, db_path: Path = DB_PATH, raw_dir: Path = RAW_DIR) -> None:
         self.db_path = Path(db_path)
         self.raw_dir = Path(raw_dir)
@@ -37,15 +39,19 @@ class Storage:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.raw_dir.mkdir(parents=True, exist_ok=True)
 
-        self.conn = sqlite3.connect(str(self.db_path, ), timeout=30)
+        self.conn = sqlite3.connect(
+            str(self.db_path),
+            timeout=60.0,        # wait longer on locks
+            isolation_level=None # AUTOCOMMIT (minimizes lock duration)
+        )
         self.conn.row_factory = sqlite3.Row
 
         self.conn.execute("PRAGMA journal_mode=WAL;")
         self.conn.execute("PRAGMA synchronous=NORMAL;")
-        self.conn.execute("PRAGMA temp_store=MEMORY;")
+        self.conn.execute("PRAGMA busy_timeout=60000;")
         self.conn.execute("PRAGMA foreign_keys=ON;")
-        self.conn.execute("PRAGMA busy_timeout=5000;")
-        self.conn.execute("PRAGMA cache_size=-65536;") 
+        self.conn.execute("PRAGMA temp_store=MEMORY;")
+        self.conn.execute("PRAGMA cache_size=-64000;")
 
         self._init_schema()
 
@@ -59,11 +65,15 @@ class Storage:
             INSERT OR IGNORE INTO municipality_documents (municipality_id, document_id)
             VALUES (?, ?)
         """
+
+        # NOTE: extended with impact_score/hit_count/is_negative (nullable)
         self._sql_insert_segment = """
             INSERT OR IGNORE INTO segments (
-                segment_id, document_id, order_index, segment_type, text, segment_hash, page_ref
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                segment_id, document_id, order_index, segment_type, text, segment_hash, page_ref,
+                impact_score, hit_count, is_negative
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
+
         self._sql_mark_visited = """
             INSERT INTO visited (url_canonical, last_fetch_at, last_status_code, last_error)
             VALUES (?, ?, ?, ?)
@@ -172,9 +182,32 @@ class Storage:
             """
         )
 
+        # ensure extra columns on documents_raw (legacy safety)
         try:
             self._ensure_column("documents_raw", "raw_ext", "TEXT")
             self._ensure_column("documents_raw", "content_length", "INTEGER")
+        except Exception:
+            pass
+
+        # --- segments enrichment columns (for topic modeling / relevance filtering) ---
+        try:
+            self._ensure_column("segments", "impact_score", "INTEGER")
+            self._ensure_column("segments", "hit_count", "INTEGER")
+            self._ensure_column("segments", "is_negative", "INTEGER")
+        except Exception:
+            pass
+
+        # --- indices for fast top-segment retrieval ---
+        try:
+            self.conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_segments_doc_score ON segments(document_id, impact_score DESC)"
+            )
+            self.conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_segments_score ON segments(impact_score DESC)"
+            )
+            self.conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_segments_negative ON segments(is_negative)"
+            )
         except Exception:
             pass
 
@@ -270,13 +303,33 @@ class Storage:
         self.conn.execute(self._sql_link_muni_doc, (municipality_id, document_id))
 
     def store_segments(self, document_id: str, segments: Iterable[Any]) -> int:
-        rows: List[Tuple[str, str, int, str, str, str, Optional[str]]] = []
+        """
+        Stores segments and (optionally) segment relevance features:
+          - impact_score (INTEGER)
+          - hit_count (INTEGER)
+          - is_negative (INTEGER 0/1)
+        If those attributes are absent on Segment objects, NULL is stored.
+        """
+        rows: List[
+            Tuple[
+                str, str, int, str, str, str, Optional[str],
+                Optional[int], Optional[int], Optional[int]
+            ]
+        ] = []
         sha256 = hashlib.sha256
 
         for seg in segments:
             text = str(getattr(seg, "text", "") or "")
             norm = text.strip()
+            if not norm:
+                continue
+
             seg_hash = sha256(norm.encode("utf-8")).hexdigest()
+
+            impact_score = getattr(seg, "impact_score", None)
+            hit_count = getattr(seg, "hit_count", None)
+            is_negative = getattr(seg, "is_negative", None)
+
             rows.append(
                 (
                     str(uuid.uuid4()),
@@ -286,6 +339,9 @@ class Storage:
                     text,
                     seg_hash,
                     getattr(seg, "page_ref", None),
+                    int(impact_score) if impact_score is not None else None,
+                    int(hit_count) if hit_count is not None else None,
+                    int(is_negative) if is_negative is not None else None,
                 )
             )
 
@@ -393,3 +449,60 @@ class Storage:
                 """,
                 (status, now, error, str(municipality_id)),
             )
+
+    def is_visited_with_error(self, url: str) -> bool:
+        """Prüft, ob eine URL bereits besucht wurde, aber einen Fehler (z.B. 404) erzeugt hat."""
+        query = "SELECT 1 FROM visited WHERE url_canonical = ? AND last_status_code != 200 LIMIT 1"
+        res = self.conn.execute(query, (url,)).fetchone()
+        return res is not None
+
+    def store_segments_scored(
+        self,
+        document_id: str,
+        segments: Iterable[Any],
+        scorer,  # callable(text)->(score,hits,neg)
+    ) -> int:
+        """
+        Stores segments but computes impact_score/hit_count/is_negative without
+        mutating Segment objects (needed because Segment is frozen+slots).
+        """
+        rows: List[
+            Tuple[
+                str, str, int, str, str, str, Optional[str],
+                Optional[int], Optional[int], Optional[int]
+            ]
+        ] = []
+        sha256 = hashlib.sha256
+
+        for seg in segments:
+            text = str(getattr(seg, "text", "") or "")
+            norm = text.strip()
+            if not norm:
+                continue
+
+            seg_hash = sha256(norm.encode("utf-8")).hexdigest()
+
+            score, hits, neg = scorer(text)
+
+            rows.append(
+                (
+                    str(uuid.uuid4()),
+                    document_id,
+                    int(getattr(seg, "order_index", 0) or 0),
+                    str(getattr(seg, "segment_type", "") or ""),
+                    text,
+                    seg_hash,
+                    getattr(seg, "page_ref", None),
+                    int(score),
+                    int(hits),
+                    int(neg),
+                )
+            )
+
+        if not rows:
+            return 0
+
+        before = self.conn.total_changes
+        self.conn.executemany(self._sql_insert_segment, rows)
+        after = self.conn.total_changes
+        return max(0, after - before)

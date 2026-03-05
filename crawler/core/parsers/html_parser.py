@@ -8,21 +8,12 @@ from bs4 import BeautifulSoup
 
 from crawler.core.models import ParseResult, Segment, FetchResult
 
-
 MIN_SEGMENT_LENGTH = 30
 
-# conservative skip list for obvious non-document assets
-BLOCKED_EXTENSIONS = (
-    ".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg",
-    ".mp4", ".mp3", ".avi", ".mov", ".mkv",
-    ".zip", ".rar", ".7z", ".tar", ".gz",
-    ".css", ".js", ".woff", ".woff2", ".ttf", ".ico",
-)
+_ASSET_EXT_PATTERN = r"\.(jpg|jpeg|png|gif|webp|svg|mp4|mp3|avi|mov|mkv|zip|rar|7z|tar|gz|css|js|woff|woff2|ttf|ico)(?:\?|$)"
+_RE_ASSET = re.compile(_ASSET_EXT_PATTERN, re.IGNORECASE)
 
-# remove clearly non-content and high-noise boilerplate containers
-DROP_TAGS = ("script", "style", "noscript", "svg")
-DROP_SECTIONS = ("nav", "footer", "aside")
-
+DROP_TAGS_AND_SECTIONS = ["script", "style", "noscript", "svg", "nav", "footer", "aside"]
 
 _RE_WS = re.compile(r"\s+")
 _RE_MULTI_SLASH = re.compile(r"/{2,}")
@@ -30,30 +21,6 @@ _RE_MULTI_SLASH = re.compile(r"/{2,}")
 
 def _clean_text(text: str) -> str:
     return _RE_WS.sub(" ", text or "").strip()
-
-
-def _looks_like_asset(url: str) -> bool:
-    u = (url or "").lower().split("?", 1)[0]
-    return any(u.endswith(ext) for ext in BLOCKED_EXTENSIONS)
-
-
-def _is_http_url(url: str) -> bool:
-    try:
-        s = urlsplit(url)
-    except Exception:
-        return False
-    return s.scheme in ("http", "https") and bool(s.netloc)
-
-
-def _dedup_links(links: list[tuple[str, str]]) -> list[tuple[str, str]]:
-    out: list[tuple[str, str]] = []
-    seen: set[str] = set()
-    for u, a in links:
-        if u in seen:
-            continue
-        seen.add(u)
-        out.append((u, a))
-    return out
 
 
 def parse_html(fetch_result: FetchResult, base_url: str) -> ParseResult:
@@ -69,15 +36,11 @@ def parse_html(fetch_result: FetchResult, base_url: str) -> ParseResult:
         except Exception:
             return ParseResult(text="", segments=[], out_links=[], meta={})
 
-    for tag in soup(DROP_TAGS):
-        tag.decompose()
-
-    for tag in soup.find_all(DROP_SECTIONS):
+    for tag in soup.find_all(DROP_TAGS_AND_SECTIONS):
         tag.decompose()
 
     segments: list[Segment] = []
     order = 0
-
     min_len = int(MIN_SEGMENT_LENGTH)
 
     for tag in soup.find_all(["h1", "h2", "h3", "h4", "p", "li"]):
@@ -97,32 +60,37 @@ def parse_html(fetch_result: FetchResult, base_url: str) -> ParseResult:
         order += 1
 
     links: list[tuple[str, str]] = []
+    seen: set[str] = set()
+
     for a in soup.find_all("a", href=True):
         href = str(a.get("href") or "").strip()
-        if not href:
-            continue
-
-        if href.startswith(("mailto:", "tel:", "javascript:", "#")):
+        if not href or href.startswith(("mailto:", "tel:", "javascript:", "#")):
             continue
 
         abs_url = urljoin(base_url, href)
 
-        try:
-            p = urlsplit(abs_url)
-            if p.path and "//" in p.path:
-                abs_url = abs_url.replace(p.path, _RE_MULTI_SLASH.sub("/", p.path), 1)
-        except Exception:
-            pass
+        abs_url = abs_url.split("#")[0]
 
-        if not _is_http_url(abs_url):
+        if not abs_url.startswith(("http://", "https://")):
             continue
-        if _looks_like_asset(abs_url):
+
+        if _RE_ASSET.search(abs_url):
             continue
+
+        if abs_url in seen:
+            continue
+        seen.add(abs_url)
+
+        if "//" in abs_url[8:]:  # 8: skip "https://"
+            try:
+                p = urlsplit(abs_url)
+                if p.path and "//" in p.path:
+                    abs_url = abs_url.replace(p.path, _RE_MULTI_SLASH.sub("/", p.path), 1)
+            except Exception:
+                pass
 
         anchor = _clean_text(a.get_text(" ", strip=True))
         links.append((abs_url, anchor))
-
-    links = _dedup_links(links)
 
     title_tag = soup.find("title")
     title = _clean_text(title_tag.get_text()) if title_tag else None
