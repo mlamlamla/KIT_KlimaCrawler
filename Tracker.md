@@ -23,6 +23,6 @@
 | pkg_15 | ⏳ Frei | mlamlamla               |
 | pkg_16 | ⏳ Frei | mlamlamla               |
 | pkg_17 | ⏳ Frei | mlamlamla               |
-| pkg_18 | ⏳ Frei |                |
+| pkg_18 | ⏳ Frei | mlamlamla               |
 | pkg_19 | ⏳ Frei |                |
 | pkg_20 | ⏳ Frei |                |
