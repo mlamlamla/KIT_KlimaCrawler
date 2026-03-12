@@ -24,5 +24,5 @@
 | pkg_16 | ⏳ Frei | mlamlamla               |
 | pkg_17 | ⏳ Frei | mlamlamla               |
 | pkg_18 | ⏳ Frei | mlamlamla               |
-| pkg_19 | ⏳ Frei |                |
-| pkg_20 | ⏳ Frei |                |
+| pkg_19 | ⏳ Frei | mlamlamla               |
+| pkg_20 | ⏳ Frei | mlamlamla               |
