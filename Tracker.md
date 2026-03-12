@@ -13,16 +13,16 @@
 | pkg_05 | ⏳ Frei |                |
 | pkg_06 | ⏳ Frei |                |
 | pkg_07 | ⏳ Frei |                |
-| pkg_08 | ⏳ Frei |                |
-| pkg_09 | ⏳ Frei | mlamlamla               |
+| pkg_08 | ⏳ Frei | mlamlamla      |
+| pkg_09 | ⏳ Frei | mlamlamla      |
 | pkg_10 | ⏳ Frei | mlamlamla      |
-| pkg_11 | ⏳ Frei | mlamlamla               |
-| pkg_12 | ⏳ Frei | mlamlamla               |
-| pkg_13 | ⏳ Frei | mlamlamla               |
-| pkg_14 | ⏳ Frei | mlamlamla               |
-| pkg_15 | ⏳ Frei | mlamlamla               |
-| pkg_16 | ⏳ Frei | mlamlamla               |
-| pkg_17 | ⏳ Frei | mlamlamla               |
-| pkg_18 | ⏳ Frei | mlamlamla               |
-| pkg_19 | ⏳ Frei | mlamlamla               |
-| pkg_20 | ⏳ Frei | mlamlamla               |
+| pkg_11 | ⏳ Frei | mlamlamla      |
+| pkg_12 | ⏳ Frei | mlamlamla      |
+| pkg_13 | ⏳ Frei | mlamlamla      |
+| pkg_14 | ⏳ Frei | mlamlamla      |
+| pkg_15 | ⏳ Frei | mlamlamla      |
+| pkg_16 | ⏳ Frei | mlamlamla      |
+| pkg_17 | ⏳ Frei | mlamlamla      |
+| pkg_18 | ⏳ Frei | mlamlamla      |
+| pkg_19 | ⏳ Frei | mlamlamla      |
+| pkg_20 | ⏳ Frei | mlamlamla      |
