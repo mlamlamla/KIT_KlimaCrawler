@@ -12,7 +12,7 @@
 | pkg_04 | ⏳ Frei | Sven           |
 | pkg_05 | ⏳ Frei |                |
 | pkg_06 | ⏳ Frei |                |
-| pkg_07 | ⏳ Frei |                |
+| pkg_07 | ⏳ Frei | mlamlamla      |
 | pkg_08 | ⏳ Frei | mlamlamla      |
 | pkg_09 | ⏳ Frei | mlamlamla      |
 | pkg_10 | ⏳ Frei | mlamlamla      |
